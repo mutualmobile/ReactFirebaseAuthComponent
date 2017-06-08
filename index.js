@@ -1,11 +1,9 @@
 import mobx, { computed, observable, action } from "mobx"
-import RNFirebase from './../modules/RNFirebase';
+
 import Promise from 'bluebird';
-import { Actions } from 'react-native-router-flux'
 
 class Auth {
   constructor() {
-   this.bindAuthHandler()
   }
 
   @observable authorization = null
@@ -19,13 +17,9 @@ class Auth {
     return this.user ? true : false
   }
 
-  @action saveAuth(user){
-    console.log("saving user to database",  user)
-    return RNFirebase.database().ref(`/users/${user.uid}`).update(user)
-  }
-  @action setUser(user){
-    console.log("SET USER ACTION TRIGGERED")
+  @action saveUser(user){
     this.user = user || null
+    return this.firebaseRef.database().ref(`/users/${user.uid}`).update(user)
   }
   @action setToken(token) {
     this.authorization = `Bearer ${token}`
@@ -39,24 +33,66 @@ class Auth {
   }
 
   @action setFcmToken(user) {
-    return RNFirebase.messaging().getToken()
+    return this.firebaseRef.messaging().getToken()
       .then((token) => {
-        console.log('Device FCM Token: ', token);
-        return RNFirebase.database().ref(`/devices/${user.uid}/${token}`).update({type:'ios'});
+        return this.firebaseRef.database().ref(`/devices/${user.uid}/${token}`).update({type:'ios'});
+      });
+  }
+  @action loginEmailPassword(email, password){
+    this.loggingIn = true
+    this.firebaseRef.auth().signInWithEmailAndPassword(email, password)
+      .then((user) => {
+        this.loggingIn = false
+        this.loginError = null
+      })
+      .catch((err) => {
+        this.loggingIn = false
+        this.loginError = err
+      })
+  }
+  @action registerEmailPassword(person){
+    this.registering = true;
+    this.firebaseRef.auth().createUserWithEmailAndPassword(person.email, person.password)
+      .then((user) => {
+        this.registering = false
+        this.registrationError = null
+      })
+      .catch((err) => {
+        this.registering = false
+        this.registrationError = err
       });
   }
 
-  @action bindAuthHandler(){
-     RNFirebase.auth().onAuthStateChanged((user) => {
-        if (!user){
-          Actions.login()
-        }else{
-          //TODO: check if current scene is login, if so then send to home.
-          this.setUser(user);
-          this.setFcmToken(user);
-          Actions.home();
-        }
+  @action loginFacebook(token, provider) {
+    this.loggingIn = true
+    let credential
+    switch(provider){
+      case "facebook":
+      credential = this.firebaseRef.auth.FacebookAuthProvider.credential(token);
+      break;
+    }
+    if (!credential) return
 
+    this.firebaseRef.auth().signInWithCredential(credential)
+      .then((currentUser) => {
+        if (currentUser === 'cancelled') {
+          console.log('Login cancelled');
+        } else {
+          // now signed in
+          console.warn(JSON.stringify(currentUser.toJSON()));
+        }
+        this.loggingIn = false
+      })
+  }
+
+  @action bindAuthHandler(firebase, success, failure){
+    this.firebaseRef = firebase;
+     this.firebaseRef.auth().onAuthStateChanged((user) => {
+        if (!user){
+          failure();
+        }else{
+          success(user);
+        }
     })
   }
   // @action logout() {
